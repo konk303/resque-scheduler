@@ -85,13 +85,13 @@ module Resque
       def set_schedule(name, config, reload = true)
         persist = config.delete(:persist) || config.delete('persist')
 
-        if persist
+        if persist && !Resque.inline
           redis.hset(:persistent_schedules, name, encode(config))
         else
           non_persistent_schedules[name] = decode(encode(config))
         end
 
-        redis.sadd(:schedules_changed, name)
+        redis.sadd(:schedules_changed, name) unless Resque.inline
         reload_schedule! if reload
       end
 
@@ -103,8 +103,10 @@ module Resque
       # remove a given schedule by name
       def remove_schedule(name)
         non_persistent_schedules.delete(name)
-        redis.hdel(:persistent_schedules, name)
-        redis.sadd(:schedules_changed, name)
+        unless Resque.inline
+          redis.hdel(:persistent_schedules, name)
+          redis.sadd(:schedules_changed, name)
+        end
 
         reload_schedule!
       end
@@ -118,6 +120,7 @@ module Resque
 
       # reads the persistent schedules from redis
       def persistent_schedules
+        return {} if Resque.inline
         redis.hgetall(:persistent_schedules).tap do |h|
           h.each do |name, config|
             h[name] = decode(config)
